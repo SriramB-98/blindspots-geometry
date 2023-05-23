@@ -307,7 +307,12 @@ def load_model_normalizer(model_name, model_type, dataset='imagenet'):
         for p in model.parameters():
             p.requires_grad_(False)
     elif dataset == 'cifar10':
-        raise NotImplementedError
+        if model_type == 'linf':
+            normalizer, model = load_model(model_name='Wu2020Adversarial', dataset='cifar10', threat_model='Linf').to(device)
+        else:
+            normalizer, model = load_model(model_name='Standard', dataset='cifar10', threat_model='Linf').to(device)
+        for p in model.parameters():
+            p.requires_grad_(False)
     model.eval()
     return model, normalizer
 
