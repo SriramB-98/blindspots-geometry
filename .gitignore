@@ -1,0 +1,6 @@
+Cifar10/
+._*
+model_ckpts/
+models/
+*.pkl
+*.png
