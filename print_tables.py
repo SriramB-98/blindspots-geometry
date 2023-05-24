@@ -4,12 +4,13 @@ import pickle
 
 typ = 'confs' # 'dist' or 'confs' corresponds to the tables in the paper
 dataset = 'imagenet' # which dataset
+hyperparam_str = '100samples_stepsize-0.01_iters-400_advstepsize0.002' #other hyperparams
 
 model_name_form = ['ResNet-50 (Normal)', 'ResNet-50 (AT)', 'DeiT-S (Normal)', 'DeiT-S (AT)']
 for j, model_name in enumerate(['resnet50-normal', 'resnet50-linf', 'deit_small_patch16_224-normal', 'deit_small_patch16_224-linf']):
     
     if typ == 'confs':
-        with open(f'./{model_name}_100samples_stepsize-0.01_iters-400_advstepsize0.002_{dataset}_all_confs.pkl', 'rb') as fp:
+        with open(f'./{model_name}_{hyperparam_str}_{dataset}_all_confs.pkl', 'rb') as fp:
             avg_confs = pickle.load(fp)
         means, stds = np.round(avg_confs.mean(axis=0), 3), np.round(avg_confs.std(axis=0), 3)
         means = means[:-1]

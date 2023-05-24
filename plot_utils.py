@@ -156,7 +156,7 @@ def plot_images(model, normalizer, inp_per_class, classes, class_names, save_pat
             if i == j:
                 axarr[i, j].patch.set_edgecolor('black')  
                 axarr[i, j].patch.set_linewidth(5)  
-            if i==0 and j == 0:
+            if i==0 and j == 0 and len(classes) != 10:
                 bbox = axarr[i, j].get_position()
                 rect = Rectangle((.2*bbox.width+bbox.height,0.9*bbox.width), 1.1*bbox.width, 0.8, edgecolor='blue', facecolor='white', zorder=-1, transform=f.transFigure, clip_on=False, linewidth=4)
                 axarr[i, j].add_artist(rect)

@@ -308,9 +308,10 @@ def load_model_normalizer(model_name, model_type, dataset='imagenet'):
             p.requires_grad_(False)
     elif dataset == 'cifar10':
         if model_type == 'linf':
-            normalizer, model = load_model(model_name='Wu2020Adversarial', dataset='cifar10', threat_model='Linf').to(device)
+            model = load_model(model_name='Wu2020Adversarial', dataset='cifar10', threat_model='Linf').to(device)
         else:
-            normalizer, model = load_model(model_name='Standard', dataset='cifar10', threat_model='Linf').to(device)
+            model = load_model(model_name='Standard', dataset='cifar10', threat_model='Linf').to(device)
+        normalizer = lambda x: x
         for p in model.parameters():
             p.requires_grad_(False)
     model.eval()
@@ -373,7 +374,10 @@ if __name__ == "__main__":
                 preds = torch.softmax(model(normalizer(target_images.to(device))), dim=-1).cpu().detach().numpy()
         print([preds[i, target_classes[i]] for i in range(len(target_classes))])
     except FileNotFoundError:
-        all_models_normalizers = [load_model_normalizer(model_name, model_type) for model_name in ['resnet50', 'deit_small_patch16_224'] for model_type in ['linf', 'normal']]
+        if args.dataset == 'imagenet':
+            all_models_normalizers = [load_model_normalizer(model_name, model_type, dataset='imagenet') for model_name in ['resnet50', 'deit_small_patch16_224'] for model_type in ['linf', 'normal']]
+        elif args.dataset == 'cifar10':
+            all_models_normalizers = [load_model_normalizer(model_name, model_type, dataset='cifar10') for model_name in ['wideresnet'] for model_type in ['linf', 'normal']]
         target_images = get_targets(all_models_normalizers, data_loader, target_classes.copy(), device)
         target_images = torch.stack(target_images, dim=0)
         for model, normalizer in all_models_normalizers:
