@@ -308,7 +308,7 @@ def load_model_normalizer(model_name, model_type, dataset='imagenet'):
             p.requires_grad_(False)
     elif dataset == 'cifar10':
         if model_type == 'linf':
-            model = load_model(model_name='Wu2020Adversarial', dataset='cifar10', threat_model='Linf').to(device)
+            model = load_model(model_name='Wu2020Adversarial_extra', dataset='cifar10', threat_model='Linf').to(device)
         else:
             model = load_model(model_name='Standard', dataset='cifar10', threat_model='Linf').to(device)
         normalizer = lambda x: x
