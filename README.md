@@ -19,7 +19,7 @@ The main entry point is level_set_traversal.py . There are two compulsory args: 
     Dumps a pkl file containing a summary of the LST results with distances (Tab 1 in paper), along with a pkl file containing stats over the triangular regions (Tab 2). The tables can be printed using print_tables.py
     
 
-Parameters used in the main paper: python -u level_set_traversal.py resnet50-normal imagenet --full_eval --step_size 1e-2 --iters 400 --width_distances 0.5 1 1.5 2 --log_step 20 --pthresh 0.2 --adv_pert --adv_step_size 3e-4 --batch_size 196"
+Parameters used in the main paper: python -u level_set_traversal.py resnet50-normal imagenet --full_eval --step_size 1e-2 --iters 400 --width_distances 0.5 1 1.5 2 --log_step 20 --pthresh 0.2 --adv_pert --adv_step_size 2e-3 --batch_size 196"
 
 TODOS for Vinu:
     Get all the above (viz image grid, contour plot, width plot, tab 1 and tab 2) for:
