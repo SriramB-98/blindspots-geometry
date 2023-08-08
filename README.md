@@ -6,7 +6,7 @@
 
 # Code organization
 
-The main entry point is level_set_traversal.py . There are two compulsory args: model and dataset. It can be run in two models '--examples' or '--full_eval'.
+The main entry point is level_set_traversal.py . There are two compulsory args: model and dataset. It can be run in two modes '--examples' or '--full_eval'.
 
 1. '--examples': 
     This picks one image from each class in target_classes, and tries to find paths from each image to every other image using the LST algorithm

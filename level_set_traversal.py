@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 import pickle
 import torch
-torch.manual_seed(0)
+
 import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import random
-random.seed(0)
+
 #random.seed(1)
 import argparse
 import timm
@@ -30,12 +30,14 @@ def get_args():
     parser.add_argument('dataset',  type=str, help='Dataset name')
     parser.add_argument('--batch_size', type=int, default=64,
                         help='batch size')
+    parser.add_argument('--desc', type=str, default="")
     parser.add_argument('--num_workers', type=int, default=4, 
                         help='number of workers')
     parser.add_argument('--step_size', type=float, default=5e-2,
                         help='batch size')
+    parser.add_argument('--seed', type=int, default=0,)
     parser.add_argument('--pthresh', type=float, default=0.05)
-    parser.add_argument('--imgnet_path', type=str, default="~/ILSVRC2012",)
+    parser.add_argument('--imgnet_path', type=str, default="/fs/cml-datasets/ImageNet/ILSVRC2012/",)
     parser.add_argument('--cifar_path', type=str, default="~/Cifar10",)
     parser.add_argument('--iters', type=int, default=100,
                         help='batch size')
@@ -64,6 +66,7 @@ def get_args():
                         help='width distances')
     parser.add_argument('--target_classes', nargs='+', type=int, default=[99, 199, 299, 400, 499],
                         help='target classes')
+    parser.add_argument('--random_classes', action='store_true',)
     parser.add_argument('--load_dict', action='store_true')
     parser.add_argument('--adv_pert', action='store_true',
                     help='whether to use adversarial perturbation')
@@ -71,8 +74,6 @@ def get_args():
                     help='step size of adversarial perturbation')
     parser.add_argument('--load_model_path', type=str, default=None,
                     help='path to load model')
-    parser.add_argument('--desc', type=str, default="",
-                        help='number of images per class')
     args = parser.parse_args()
     return args
 
@@ -119,6 +120,7 @@ def measure_width(img, model, normalizer, index, dir_vec, distances = [5, 10, 15
 def get_targets(model_normalizers, loader, target_classes, device):
     target_images = dict()
     orig_target_classes = target_classes.copy()
+    print(len(loader))
     for i, data_batch in enumerate(loader):
         imgs, labels = data_batch
         rel_inds = (labels[:, None] == torch.LongTensor(target_classes)[None,:]).any(dim=-1)
@@ -319,6 +321,10 @@ def load_model_normalizer(model_name, model_type, dataset='imagenet'):
 
 if __name__ == "__main__":
     args = get_args()
+
+    torch.manual_seed(args.seed)
+    random.seed(args.seed)
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # dataset creation
@@ -358,9 +364,13 @@ if __name__ == "__main__":
 
     # get target imgs
     print("Getting target images...")
-    if args.target_classes is None:
-        args.target_classes = [random.randint(0,len(classes)) for _ in range(10)]
-    target_classes = args.target_classes 
+    if args.random_classes:
+        target_classes = [random.randint(0,len(classes)) for _ in range(10)]
+        ## choose 5 unique classes
+        target_classes = list(set(target_classes))[:5]
+        print('Random classes chosen: ', target_classes)
+    else:
+        target_classes = args.target_classes 
     target_classes_str = "-".join([str(x) for x in target_classes])
 
     try:
@@ -392,6 +402,7 @@ if __name__ == "__main__":
             print(img.shape)
             plt.imsave(f'./plots_and_figures/{args.dataset}_target_{target_classes[i]}.png', img)
 
+    prefix = f'./plots_and_figures/{args.desc}{args.model}_{args.dataset}_{target_classes_str}'
     # attack chosen examples
     if args.examples:
         print("Running attack on examples...")
@@ -402,10 +413,10 @@ if __name__ == "__main__":
                                       get_final_imgs=True, dfunc_list=[], get_confs_over_path=args.get_confs_over_path)
             for i in range(len(dict_per_target)):
                 dict_per_target[i]['final_images'][i] = target_images[i]
-            with open(f'./plots_and_figures/{args.model}_{args.dataset}_{target_classes_str}_examples_dict.pkl', 'wb+') as fp:
+            with open(f'{prefix}_examples_dict.pkl', 'wb+') as fp:
                 pickle.dump((vars(args), dict_per_target), fp)
         else:
-            with open(f'./plots_and_figures/{args.model}_{args.dataset}_{target_classes_str}_examples_dict.pkl', 'rb') as fp:
+            with open(f'{prefix}_examples_dict.pkl', 'rb') as fp:
                 args, dict_per_target = pickle.load(fp)
                 args = argparse.Namespace(**args)
                 target_classes = args.target_classes
@@ -413,7 +424,10 @@ if __name__ == "__main__":
         inp_per_class = torch.stack([dict_per_target[i]['final_images'] for i in range(len(dict_per_target))])
 
         # Plot image grid
-        plot_images(model, normalizer, inp_per_class, target_classes, classes, f"./plots_and_figures/{args.model}_{args.dataset}_{target_classes_str}_attacked_images.png")
+        plot_images(model, normalizer, inp_per_class, target_classes, classes, f"{prefix}_attacked_images.png")
+        
+        if args.get_images:
+            visualize_path_images(dict_per_target[0]['imgs_over_path'][1], f"{prefix}_path_images_1_0.png")
 
         # Plot triangles for all target pairs
         all_trg_pairs = [(1,2), (2,3), (3,4), (1,3), (1,4), (2,4)]
@@ -425,7 +439,7 @@ if __name__ == "__main__":
                 img = dict_per_target[target_class]['final_images'][source_class]
                 imgs.append(img)
             all_imgs.append(imgs)
-        visualize_nplane(model, normalizer, all_imgs, target_classes[source_class], save_path=f'./plots_and_figures/{args.model}_{args.dataset}_plane_src-{sc}.png', num_interps=10)
+        visualize_nplane(model, normalizer, all_imgs, target_classes[source_class], save_path=f'{prefix}_plane_src-{sc}.png', num_interps=10)
 
         if args.get_widths:
             for src_ind, dst_ind in [(0, 1), (2,3), (4,0)]:
@@ -435,18 +449,17 @@ if __name__ == "__main__":
     if args.full_eval:
         if not args.load_dict:
             print(f"Running attack on {args.num_samples} correctly classified source examples...")
-            dict_per_target = run_lst(model, normalizer, data_loader, target_images, target_classes, device, num_samples=args.num_samples,
-                                     pthresh=args.pthresh, get_images=args.get_images, get_widths=args.get_widths, get_final_imgs=args.get_final_imgs, 
-                                     dfunc_list=[l2, linf, ssim, lpips_dist], get_confs_over_path=args.get_confs_over_path)
-            with open(f'./{args.model}_{args.num_samples}samples_stepsize-{args.step_size}_iters-{args.iters}_advstepsize{args.adv_step_size}_{args.dataset}_fulleval_dict.pkl', 'wb+') as fp:
+            dict_per_target = run_lst(model, normalizer, data_loader, target_images, target_classes, device, num_samples=args.num_samples, pthresh=args.pthresh, get_images=args.get_images, get_widths=args.get_widths, get_final_imgs=args.get_final_imgs, dfunc_list=[l2, linf, ssim, lpips_dist], get_confs_over_path=args.get_confs_over_path)
+            with open(f'{prefix}_{args.num_samples}samples_stepsize-{args.step_size}_{args.iters}iters_advstepsize-{args.adv_step_size}_fulleval_dict.pkl', 'wb+') as fp:
                 pickle.dump((vars(args), dict_per_target), fp)
         else:
-            with open(f'./{args.model}_{args.num_samples}samples_stepsize-{args.step_size}_iters-{args.iters}_advstepsize{args.adv_step_size}_{args.dataset}_fulleval_dict.pkl', 'rb') as fp:
+            with open(f'{prefix}_{args.num_samples}samples_stepsize-{args.step_size}_{args.iters}iters_advstepsize-{args.adv_step_size}_fulleval_dict.pkl', 'rb') as fp:
                 args, dict_per_target = pickle.load(fp)
                 args = argparse.Namespace(**args)
                 target_classes = args.target_classes
         
-        all_trg_pairs = [(0,1), (0,2), (0,3), (0,4), (1,2), (2,3), (3,4), (1,3), (1,4), (2,4)]
-        avg_confs = get_avg_conf_for_img_set(model, normalizer, dict_per_target, trg_classes=all_trg_pairs)
-        with open(f'./{args.model}_{args.num_samples}samples_stepsize-{args.step_size}_iters-{args.iters}_advstepsize{args.adv_step_size}_{args.dataset}_all_confs.pkl', 'wb+') as fp:
-            pickle.dump(avg_confs, fp)
+        if args.get_final_imgs:
+            all_trg_pairs = [(0,1), (0,2), (0,3), (0,4), (1,2), (2,3), (3,4), (1,3), (1,4), (2,4)]
+            avg_confs = get_avg_conf_for_img_set(model, normalizer, dict_per_target, trg_classes=all_trg_pairs)
+            with open(f'{prefix}_{args.num_samples}samples_stepsize-{args.step_size}_{args.iters}iters_advstepsize-{args.adv_step_size}_all_confs.pkl', 'wb+') as fp:
+                pickle.dump(avg_confs, fp)

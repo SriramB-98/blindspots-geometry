@@ -41,6 +41,14 @@ def visualize_path_radius(x, y, radii, save_path):
     plt.savefig(save_path)
     return
 
+def visualize_path_images(images, save_path):
+    fig, ax = plt.subplots(ncols=len(images), figsize=[10*len(images), 10])
+    for i, img in enumerate(images):
+        ax[i].imshow(img.permute(1,2,0).numpy())
+        ax[i].axis('off')
+    plt.savefig(save_path, bbox_inches='tight')
+    return
+
 def get_avg_conf(model, normalizer, imgs, source_class, num_interps=10):
     t1l = np.arange(num_interps+1)/num_interps
     t2l = np.arange(num_interps+1)/num_interps
@@ -75,7 +83,7 @@ def visualize_nplane(model, normalizer, imgs_list, source_class, save_path='./pl
         cos_sim = torch.nn.functional.cosine_similarity((imgs[2]-imgs[0]).reshape(-1), 
                                                         (imgs[1] - imgs[0]).reshape(-1), dim=0).item()
         mag = torch.norm(imgs[2]-imgs[0]).item()/(torch.norm(imgs[1]-imgs[0]).item())
-        print(mag, cos_sim)
+        # print(mag, cos_sim)
         corner_coords_2 = source_coords + np.array(( mag*cos_sim, mag*np.sqrt(1 - cos_sim**2) ))
 
         t1l = np.arange(num_interps+10)/num_interps
@@ -93,7 +101,7 @@ def visualize_nplane(model, normalizer, imgs_list, source_class, save_path='./pl
         all_coords = np.stack(all_coords)
         all_probe_imgs = torch.stack(all_probe_imgs).to(device)
 
-        print(all_probe_imgs.shape)
+        # print(all_probe_imgs.shape)
         with torch.no_grad():
             probs = torch.softmax(model(normalizer(torch.clamp(all_probe_imgs,0,1))), dim=1).cpu().numpy()
             probs = probs[:,source_class]
