@@ -326,6 +326,9 @@ if __name__ == "__main__":
     random.seed(args.seed)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    if not os.path.isdir('./plots_and_figures'):
+        os.mkdir('./plots_and_figures')
 
     # dataset creation
     print("Loading data...")
