@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from glob import glob
 import pickle
 import torch
 
@@ -8,7 +9,6 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 import random
 
-#random.seed(1)
 import argparse
 import timm
 import robustness
@@ -30,19 +30,18 @@ def get_args():
     parser.add_argument('dataset',  type=str, help='Dataset name')
     parser.add_argument('--batch_size', type=int, default=64,
                         help='batch size')
-    parser.add_argument('--desc', type=str, default="")
     parser.add_argument('--num_workers', type=int, default=4, 
                         help='number of workers')
     parser.add_argument('--step_size', type=float, default=5e-2,
                         help='batch size')
-    parser.add_argument('--seed', type=int, default=0,)
     parser.add_argument('--pthresh', type=float, default=0.05)
-    parser.add_argument('--imgnet_path', type=str, default="/fs/cml-datasets/ImageNet/ILSVRC2012/",)
+    parser.add_argument('--imgnet_path', type=str, default="/fs/cml-datasets/ImageNet/ILSVRC2012",)
     parser.add_argument('--cifar_path', type=str, default="~/Cifar10",)
     parser.add_argument('--iters', type=int, default=100,
                         help='batch size')
     parser.add_argument('--num_samples', type=int, default=1000,
                         help='Num samples for full eval')
+    parser.add_argument('--seed', type=int, default=0,)
     parser.add_argument('--num_images', type=int, default=100,
                         help='number of images per class')
     parser.add_argument('--log_step', type=int, default=10,)
@@ -66,14 +65,16 @@ def get_args():
                         help='width distances')
     parser.add_argument('--target_classes', nargs='+', type=int, default=[99, 199, 299, 400, 499],
                         help='target classes')
-    parser.add_argument('--random_classes', action='store_true',)
     parser.add_argument('--load_dict', action='store_true')
+    parser.add_argument('--random_target_classes', action='store_true')
     parser.add_argument('--adv_pert', action='store_true',
                     help='whether to use adversarial perturbation')
     parser.add_argument('--adv_step_size', type=float, default=1/255.0,
                     help='step size of adversarial perturbation')
     parser.add_argument('--load_model_path', type=str, default=None,
                     help='path to load model')
+    parser.add_argument('--desc', type=str, default="",
+                        help='number of images per class')
     args = parser.parse_args()
     return args
 
@@ -120,7 +121,6 @@ def measure_width(img, model, normalizer, index, dir_vec, distances = [5, 10, 15
 def get_targets(model_normalizers, loader, target_classes, device):
     target_images = dict()
     orig_target_classes = target_classes.copy()
-    print(len(loader))
     for i, data_batch in enumerate(loader):
         imgs, labels = data_batch
         rel_inds = (labels[:, None] == torch.LongTensor(target_classes)[None,:]).any(dim=-1)
@@ -170,7 +170,6 @@ def lpips_dist(x, y):
 
 def batch_level_set_traversal(model, normalizer, dataset, source_classes, target_image, target_class, stepsize, iterations, device, 
                            pthresh=0.05, inp=None, get_widths=False, get_confs_over_path=False, get_images=False, get_final_imgs=False, log_step=10, dfunc_list=[]):
-
     source_classes = source_classes.to(device)
     softmax = torch.nn.Softmax(dim=-1)
     if inp is None:
@@ -191,26 +190,28 @@ def batch_level_set_traversal(model, normalizer, dataset, source_classes, target
     dataset = dataset[rel_img_mask]
     source_classes = source_classes[rel_img_mask]
     inp = inp[rel_img_mask]
+    init_probs = init_probs[rel_img_mask]
     indices = torch.arange(len(inp))
+    target_image = target_image[rel_img_mask]
 
     widths_over_path, inp_over_path, confs_over_path, confs_over_path_target = [], [], [], []
     adv_delta = None
     init_target_layer_acts = source_classes
-    loss = torch.nn.CrossEntropyLoss(reduction='mean')
+    loss = torch.nn.CrossEntropyLoss(reduction='sum')
     inp = inp + (4/255)*(torch.rand_like(inp)-0.5)
     inp = torch.clamp(inp, 0., 1.)
     inp.requires_grad_()
 
-
+    print('Started')
     for i in range(iterations):
-
         pred = model(normalizer(inp))
         probs = softmax(pred)
         target_activations = pred
         cost = loss(target_activations, init_target_layer_acts)
         cost.backward()
         J = inp.grad.reshape(len(probs), prod(inp.shape[1:]))
-        v = target_image.flatten() - inp.flatten(start_dim=1)
+        v = target_image.flatten(start_dim=1) - inp.flatten(start_dim=1)
+        # v = target_image.flatten() - inp.flatten(start_dim=1)
         null_vec = get_nullspace_projection(J, v).reshape(inp.shape)
 
         if adv_delta is None:
@@ -220,6 +221,7 @@ def batch_level_set_traversal(model, normalizer, dataset, source_classes, target
         adv_delta = torch.clamp(adv_delta, -args.adv_step_size, args.adv_step_size)
                 
         if i%log_step == 0:
+            print(f'Iteration {i}')
             if get_widths:
                 print(f'Getting widths at {i}')
                 with torch.no_grad():
@@ -236,7 +238,7 @@ def batch_level_set_traversal(model, normalizer, dataset, source_classes, target
 
             if get_confs_over_path:
                 confs_at_i = probs[indices, source_classes].detach().cpu()
-                confs_at_i_target = probs[:, target_class].detach().cpu()
+                confs_at_i_target = probs[indices, target_class].detach().cpu()
                 confs_over_path.append(confs_at_i)
                 confs_over_path_target.append(confs_at_i_target)
 
@@ -250,9 +252,9 @@ def batch_level_set_traversal(model, normalizer, dataset, source_classes, target
             pred_probs = softmax(model(normalizer(new_inp)))
 
         mask = ((init_probs[indices,source_classes] - pred_probs[indices,source_classes] < pthresh)).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
-        if ~ (mask.any()):
-            print("Iterations stopped at:", i)
-            break
+        # if ~ (mask.any()):
+        #     print("Iterations stopped at:", i)
+        #     break
         inp = (inp*(~mask) + new_inp*mask).detach()
         inp.requires_grad_()
     
@@ -265,7 +267,7 @@ def batch_level_set_traversal(model, normalizer, dataset, source_classes, target
         if len(dfunc_list) == 0:
             dist_target = None
         else:
-            dist_target = torch.stack([dfunc(inp, target_image[None,:]).squeeze().detach().cpu() for dfunc in dfunc_list], dim=1)
+            dist_target = torch.stack([dfunc(inp, target_image).squeeze().detach().cpu() for dfunc in dfunc_list], dim=1)
 
     return {
         'source_images': dataset.cpu() if get_final_imgs else None,
@@ -278,16 +280,49 @@ def batch_level_set_traversal(model, normalizer, dataset, source_classes, target
         'labels': source_classes,
         }
 
+def get_rand_derangement(n):
+    a = list(range(n))
+    while True:
+        random.shuffle(a)
+        if not any(i == j for i, j in zip(a, range(n))):
+            return a
 
-def run_lst(model, normalizer, dataset , target_images, target_classes, device, pthresh=0.05, get_widths=False, get_final_imgs=False,
+def run_lst_examples(model, normalizer, dataset , target_images, target_classes, device, pthresh=0.05, get_widths=False, get_final_imgs=False,
                dfunc_list=[], get_images=False, get_confs_over_path=False, num_samples=1000):
     all_return_dict = []
     for i, image in enumerate(target_images):
         print(i)
         accum_dict = dict([])
         for b, data_batch in enumerate(tqdm(dataset)):
+            batch_target_classes = torch.Tensor([target_classes[i]]*len(data_batch[0])).long()
+            batch_target_images = torch.stack([image]*len(data_batch[0]), dim=0)
             return_dict  = batch_level_set_traversal(model, normalizer, data_batch[0], data_batch[1],
-                                                    image, target_classes[i], args.step_size, args.iters, device, 
+                                                    batch_target_images, batch_target_classes, args.step_size, args.iters, device, 
+                                                    pthresh=pthresh, get_widths=get_widths, get_images=get_images, get_final_imgs=get_final_imgs,
+                                                    dfunc_list=dfunc_list, get_confs_over_path=get_confs_over_path, log_step=args.log_step)
+            accum_dict = dict_combine(accum_dict, return_dict)
+            if len(accum_dict['labels']) >= num_samples:
+                break
+        all_return_dict.append(accum_dict)
+    return all_return_dict
+
+def run_lst(model, normalizer, dataset , target_images, target_classes, device, pthresh=0.05, get_widths=False, get_final_imgs=False,
+               dfunc_list=[], get_images=False, get_confs_over_path=False, num_samples=1000):
+    all_return_dict = []
+    for i in range(5):
+        print(i)
+        accum_dict = dict([])
+        rand_inds = torch.Tensor(get_rand_derangement(len(target_classes))).long()
+        target_classes_random = target_classes[rand_inds]
+        target_images_random = target_images[rand_inds]
+        for b, data_batch in enumerate(tqdm(dataset)):
+            bs = len(data_batch[0])
+            batch_target_classes = target_classes_random[b*bs:(b+1)*bs]
+            batch_target_images =  target_images_random[b*bs:(b+1)*bs]
+            # batch_target_images = torch.stack([image]*bs, dim=0)
+            # batch_target_classes = torch.Tensor([target_classes[i]]*bs).long()
+            return_dict  = batch_level_set_traversal(model, normalizer, data_batch[0], data_batch[1],
+                                                    batch_target_images, batch_target_classes, args.step_size, args.iters, device, 
                                                     pthresh=pthresh, get_widths=get_widths, get_images=get_images, get_final_imgs=get_final_imgs,
                                                     dfunc_list=dfunc_list, get_confs_over_path=get_confs_over_path, log_step=args.log_step)
             accum_dict = dict_combine(accum_dict, return_dict)
@@ -300,6 +335,7 @@ def load_model_normalizer(model_name, model_type, dataset='imagenet'):
     if dataset == 'imagenet':
         if model_type == 'linf':
             if model_name == 'resnet50':
+                print('Loaded Salman2020Do_R50..')
                 normalizer, model = load_model(model_name='Salman2020Do_R50', dataset='imagenet', threat_model='Linf').to(device)
             elif model_name == 'deit_small_patch16_224':
                 normalizer, model = load_model(model_name='Singh2023Revisiting_ViT-S-ConvStem', dataset='imagenet', threat_model='Linf').to(device)
@@ -324,7 +360,8 @@ if __name__ == "__main__":
 
     torch.manual_seed(args.seed)
     random.seed(args.seed)
-
+    np.random.seed(args.seed)
+    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     if not os.path.isdir('./plots_and_figures'):
@@ -367,13 +404,11 @@ if __name__ == "__main__":
 
     # get target imgs
     print("Getting target images...")
-    if args.random_classes:
-        target_classes = [random.randint(0,len(classes)) for _ in range(10)]
-        ## choose 5 unique classes
-        target_classes = list(set(target_classes))[:5]
-        print('Random classes chosen: ', target_classes)
-    else:
-        target_classes = args.target_classes 
+    if args.random_target_classes:
+        args.target_classes = [random.randint(0,len(classes)) for _ in range(5)]
+        print('Random target classes:', args.target_classes)
+        
+    target_classes = args.target_classes 
     target_classes_str = "-".join([str(x) for x in target_classes])
 
     try:
@@ -393,9 +428,9 @@ if __name__ == "__main__":
             all_models_normalizers = [load_model_normalizer(model_name, model_type, dataset='cifar10') for model_name in ['wideresnet'] for model_type in ['linf', 'normal']]
         target_images = get_targets(all_models_normalizers, data_loader, target_classes.copy(), device)
         target_images = torch.stack(target_images, dim=0)
-        for model, normalizer in all_models_normalizers:
+        for m, n in all_models_normalizers:
             with torch.no_grad():
-                preds = torch.softmax(model(normalizer(target_images.to(device))), dim=-1).cpu().detach().numpy()
+                preds = torch.softmax(m(n(target_images.to(device))), dim=-1).cpu().detach().numpy()
             print([preds[i, target_classes[i]] for i in range(len(target_classes))])
         del all_models_normalizers
         # save target images
@@ -409,17 +444,19 @@ if __name__ == "__main__":
     # attack chosen examples
     if args.examples:
         print("Running attack on examples...")
+        # example_loader = [(target_images,  torch.LongTensor(target_classes))]
         example_loader = [(target_images,  torch.LongTensor(target_classes))]
+        print('example loader shapes', example_loader[0][0].shape, example_loader[0][1].shape)
         if not args.load_dict:
-            dict_per_target = run_lst(model, normalizer, example_loader, target_images, target_classes, device,
+            dict_per_target = run_lst_examples(model, normalizer, example_loader, target_images, target_classes, device,
                                       pthresh=args.pthresh, get_images=args.get_images, get_widths=args.get_widths,  
                                       get_final_imgs=True, dfunc_list=[], get_confs_over_path=args.get_confs_over_path)
             for i in range(len(dict_per_target)):
                 dict_per_target[i]['final_images'][i] = target_images[i]
-            with open(f'{prefix}_examples_dict.pkl', 'wb+') as fp:
+            with open(f'{prefix}_stepsize-{args.step_size}_{args.iters}iters_advstepsize-{args.adv_step_size}_examples_dict.pkl', 'wb+') as fp:
                 pickle.dump((vars(args), dict_per_target), fp)
         else:
-            with open(f'{prefix}_examples_dict.pkl', 'rb') as fp:
+            with open(f'{prefix}_stepsize-{args.step_size}_{args.iters}iters_advstepsize-{args.adv_step_size}_examples_dict.pkl', 'rb') as fp:
                 args, dict_per_target = pickle.load(fp)
                 args = argparse.Namespace(**args)
                 target_classes = args.target_classes
@@ -427,10 +464,7 @@ if __name__ == "__main__":
         inp_per_class = torch.stack([dict_per_target[i]['final_images'] for i in range(len(dict_per_target))])
 
         # Plot image grid
-        plot_images(model, normalizer, inp_per_class, target_classes, classes, f"{prefix}_attacked_images.png")
-        
-        if args.get_images:
-            visualize_path_images(dict_per_target[0]['imgs_over_path'][1], f"{prefix}_path_images_1_0.png")
+        plot_images(model, normalizer, inp_per_class, target_classes, classes, f"./plots_and_figures/{args.model}_{args.dataset}_{target_classes_str}_attacked_images.png")
 
         # Plot triangles for all target pairs
         all_trg_pairs = [(1,2), (2,3), (3,4), (1,3), (1,4), (2,4)]
@@ -442,7 +476,7 @@ if __name__ == "__main__":
                 img = dict_per_target[target_class]['final_images'][source_class]
                 imgs.append(img)
             all_imgs.append(imgs)
-        visualize_nplane(model, normalizer, all_imgs, target_classes[source_class], save_path=f'{prefix}_plane_src-{sc}.png', num_interps=10)
+        visualize_nplane(model, normalizer, all_imgs, target_classes[source_class], save_path=f'./plots_and_figures/{args.model}_{args.dataset}_plane_src-{sc}.png', num_interps=10)
 
         if args.get_widths:
             for src_ind, dst_ind in [(0, 1), (2,3), (4,0)]:
@@ -450,19 +484,43 @@ if __name__ == "__main__":
        
     # attack all examples 
     if args.full_eval:
+        get_final_imgs = args.get_final_imgs
         if not args.load_dict:
+            target_images = []
+            target_classes = []
+            for img_path in glob(f'../blindspots-neurips-sub/plots_and_figures/{args.dataset}_target_*.png'):
+                img = Image.open(img_path)
+                img = transforms.ToTensor()(img)
+                img = img[:3]
+                img = img.unsqueeze(0)
+                target_images.append(img)
+                target_classes.append(int(img_path.split('_')[-1].split('.')[0]))
+            target_images = torch.cat(target_images, dim=0)
+            with torch.no_grad():
+                target_preds = torch.argmax(model(normalizer(target_images.to(device))), dim=-1).cpu().detach()
+            target_classes = torch.LongTensor(target_classes)
+            print('Target image preds', target_preds[:20], target_classes[:20], (target_preds == target_classes).float().mean())
+            print(len(target_images), len(target_classes))
             print(f"Running attack on {args.num_samples} correctly classified source examples...")
-            dict_per_target = run_lst(model, normalizer, data_loader, target_images, target_classes, device, num_samples=args.num_samples, pthresh=args.pthresh, get_images=args.get_images, get_widths=args.get_widths, get_final_imgs=args.get_final_imgs, dfunc_list=[l2, linf, ssim, lpips_dist], get_confs_over_path=args.get_confs_over_path)
+            with open('./target_images_classes.pkl', 'wb+') as fp:
+                pickle.dump((target_images, target_classes), fp)
+            target_images_list = [target_images[i*args.batch_size:(i+1)*args.batch_size] 
+                                  for i in range((len(target_images)-1)//args.batch_size + 1)]
+            target_classes_list = [target_classes[i*args.batch_size:(i+1)*args.batch_size] 
+                                  for i in range((len(target_images)-1)//args.batch_size + 1)]
+            data_loader = list(zip(target_images_list, target_classes_list))
+            dict_per_target = run_lst(model, normalizer, data_loader, target_images, target_classes, device, num_samples=args.num_samples,pthresh=args.pthresh, get_images=args.get_images, get_widths=args.get_widths, get_final_imgs=args.get_final_imgs, dfunc_list=[l2, linf, ssim, lpips_dist], get_confs_over_path=args.get_confs_over_path)
             with open(f'{prefix}_{args.num_samples}samples_stepsize-{args.step_size}_{args.iters}iters_advstepsize-{args.adv_step_size}_fulleval_dict.pkl', 'wb+') as fp:
                 pickle.dump((vars(args), dict_per_target), fp)
         else:
+            print('Loading from dict...')
             with open(f'{prefix}_{args.num_samples}samples_stepsize-{args.step_size}_{args.iters}iters_advstepsize-{args.adv_step_size}_fulleval_dict.pkl', 'rb') as fp:
                 args, dict_per_target = pickle.load(fp)
                 args = argparse.Namespace(**args)
-                target_classes = args.target_classes
-        
-        if args.get_final_imgs:
-            all_trg_pairs = [(0,1), (0,2), (0,3), (0,4), (1,2), (2,3), (3,4), (1,3), (1,4), (2,4)]
+        target_classes = list(range(len(dict_per_target)))
+        if get_final_imgs:
+            print('Computing conf metrics...')
+            all_trg_pairs = [(i, j) for i in range(len(target_classes)) for j in range(i, len(target_classes)) if i != j]
             avg_confs = get_avg_conf_for_img_set(model, normalizer, dict_per_target, trg_classes=all_trg_pairs)
             with open(f'{prefix}_{args.num_samples}samples_stepsize-{args.step_size}_{args.iters}iters_advstepsize-{args.adv_step_size}_all_confs.pkl', 'wb+') as fp:
                 pickle.dump(avg_confs, fp)
