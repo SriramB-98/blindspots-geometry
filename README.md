@@ -35,7 +35,7 @@ Thus, using the LST algorithm, we find that the level sets of common models exte
     <img src="./images_readme/star_connectivity.png" width="400"\>
 </p>
 
-To evaluate the extent of the model invariance over the regions between the LST outputs and the source image, we additionally study two-dimensional sub-spaces by evaluating the model confidence over the triangular convex hull obtained by linear interpolation over three reference points, namely the source image and the two target blindspot images produced using LST. We visualize these in the figure below, with the orginal source 'goose' image fixed at the lower left vertex. Here, the prediction confidence (in the range $[0,1]$) assigned by the model with respect to the source class is mapped to a continuous colorbar, with high-confidence points (close to 1.0) appearing as bright yellow, and low-confidence points (close to 0.0) appearing as dark violet. 
+To evaluate the extent of the model invariance over the regions between the LST outputs and the source image, we additionally study two-dimensional sub-spaces by evaluating the model confidence over the triangular convex hull obtained by linear interpolation over three reference points, namely the source image and the two target blindspot images produced using LST. We visualize these in the figure below, with the orginal source 'goose' image fixed at the lower left vertex. Here, the prediction confidence (in the range $[0,1]$) assigned by the model with respect to the source class is mapped to a continuous colorbar, with high-confidence points (close to $1.0$) appearing as bright yellow, and low-confidence points (close to $0.0$) appearing as dark violet. 
 
  <p align="left">
     <img src="./images_readme/LST_triangular_hulls.png" width="800"\>
