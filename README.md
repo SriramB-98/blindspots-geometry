@@ -12,7 +12,7 @@ This repository contains code for the implementation of our paper "Exploring Geo
 In this work, we investigate the phenomenon of under-sensitivity of classification models, wherein large-magnitude semantic perturbations leave network activations unchanged. It can be shown that under mild conditions, the level sets of differentiable functions are smooth submanifolds. We develop a novel Level Set Traversal (LST) algorithm to study and explore the geometry of level sets of common vision models, and thereby identify "blind spots" that occur within such high-confidence level sets.
 
 
-Towards this, we use the key insight that the level set is orthogonal to the local input gradient of the model. In brief, given a source-target image pair, we iteratively modify the source image to traverse the level set by computing the projection of the difference vector at each iterate onto the orthogonal complement of the local gradient. For the detailed algorithm, kindly refer to the Section-3 of the paper. 
+Towards this, we use the key insight that the level set is orthogonal to the local input gradient of the model. In brief, given a source-target image pair, we iteratively modify the source image to traverse the level set by computing the projection of the difference vector at each iterate onto the orthogonal complement of the local gradient. For the detailed algorithm, kindly refer to Section-3 of the paper. 
 
 Using a source image of a 'goose' and a target image of a 'Scottish terrier' (a dog), we present the intermediate images over the path traversed by the LST algorithm for a ResNet-50 model along with confidence scores with respect to the source class 'goose' beneath each image:
 
